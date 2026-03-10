@@ -27,7 +27,7 @@ data: {"type":"message_stop"}
 `
 
 func TestParseStreaming_WithUsage(t *testing.T) {
-	rec := parseStreaming("POST", "/v1/messages", 200, nil, []byte(sampleSSE))
+	rec := ParseStreamBody("anthropic", "POST", "/v1/messages", 200, nil, []byte(sampleSSE))
 	if rec == nil {
 		t.Fatal("expected a record, got nil")
 	}
@@ -56,7 +56,8 @@ func TestParseStreaming_WithUsage(t *testing.T) {
 }
 
 func TestParseStreaming_NonMessagesEndpoint(t *testing.T) {
-	rec := parseStreaming("POST", "/v1/complete", 200, nil, nil)
+	p := New()
+	rec := p.ParseStream("POST", "/v1/complete", 200, nil, nil)
 	if rec != nil {
 		t.Errorf("expected nil for non-messages endpoint, got %+v", rec)
 	}
@@ -66,7 +67,7 @@ func TestParseStreaming_ErrorInStream(t *testing.T) {
 	sse := `event: error
 data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}
 `
-	rec := parseStreaming("POST", "/v1/messages", 529, nil, []byte(sse))
+	rec := ParseStreamBody("anthropic", "POST", "/v1/messages", 529, nil, []byte(sse))
 	if rec == nil {
 		t.Fatal("expected a record, got nil")
 	}
@@ -79,7 +80,7 @@ data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}
 }
 
 func TestParseStreaming_EmptyBody(t *testing.T) {
-	rec := parseStreaming("POST", "/v1/messages", 200, nil, []byte{})
+	rec := ParseStreamBody("anthropic", "POST", "/v1/messages", 200, nil, []byte{})
 	if rec == nil {
 		t.Fatal("expected a record even with empty body")
 	}

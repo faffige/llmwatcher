@@ -22,10 +22,17 @@ type Server struct {
 // New creates a proxy server with routes for each enabled provider.
 // Parsers is a map of provider name → Parser; if a parser exists for a
 // provider, the recorder middleware will capture and parse requests.
-func New(cfg *config.Config, parsers map[string]provider.Parser, sink RecordSink, logger *slog.Logger) *Server {
+// Transports is an optional map of provider name → http.RoundTripper for
+// providers that need custom transport behaviour (e.g. AWS Sig V4 signing).
+func New(cfg *config.Config, parsers map[string]provider.Parser, sink RecordSink, logger *slog.Logger, transports ...map[string]http.RoundTripper) *Server {
 	s := &Server{
 		mux:    http.NewServeMux(),
 		logger: logger,
+	}
+
+	var transportMap map[string]http.RoundTripper
+	if len(transports) > 0 {
+		transportMap = transports[0]
 	}
 
 	for name, provCfg := range cfg.Providers {
@@ -41,7 +48,7 @@ func New(cfg *config.Config, parsers map[string]provider.Parser, sink RecordSink
 		}
 
 		prefix := fmt.Sprintf("/v1/%s/", name)
-		rp := newReverseProxy(upstream, prefix, logger)
+		rp := newReverseProxy(upstream, prefix, logger, transportMap[name])
 
 		// Wrap with recorder middleware if we have a parser for this provider.
 		handler := newRecorder(rp, parsers[name], sink, logger)
@@ -63,10 +70,11 @@ func (s *Server) Handler() http.Handler {
 	return s.mux
 }
 
-func newReverseProxy(upstream *url.URL, prefix string, logger *slog.Logger) http.Handler {
+func newReverseProxy(upstream *url.URL, prefix string, logger *slog.Logger, transport http.RoundTripper) http.Handler {
 	rp := &httputil.ReverseProxy{
 		// FlushInterval -1 means flush immediately — required for SSE streaming.
 		FlushInterval: -1,
+		Transport:     transport, // nil means http.DefaultTransport
 		Rewrite: func(r *httputil.ProxyRequest) {
 			// Strip the llmwatcher prefix and forward to upstream.
 			// e.g. /v1/openai/v1/chat/completions → https://api.openai.com/v1/chat/completions

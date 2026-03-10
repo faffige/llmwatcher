@@ -11,10 +11,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+
 	"github.com/faffige/llmwatcher/internal/config"
 	"github.com/faffige/llmwatcher/internal/pipeline"
 	"github.com/faffige/llmwatcher/internal/provider"
 	"github.com/faffige/llmwatcher/internal/provider/anthropic"
+	"github.com/faffige/llmwatcher/internal/provider/bedrock"
 	"github.com/faffige/llmwatcher/internal/provider/openai"
 	"github.com/faffige/llmwatcher/internal/proxy"
 	"github.com/faffige/llmwatcher/internal/storage/sqlite"
@@ -84,9 +89,22 @@ func main() {
 	parsers := map[string]provider.Parser{
 		"openai":    openai.New(),
 		"anthropic": anthropic.New(),
+		"bedrock":   bedrock.New(),
 	}
 
-	proxyServer := proxy.New(cfg, parsers, pl.Submit, logger)
+	// Set up custom transports for providers that need them.
+	transports := map[string]http.RoundTripper{}
+	if provCfg, ok := cfg.Providers["bedrock"]; ok && provCfg.Enabled && provCfg.AWS != nil {
+		awsCreds, err := buildAWSCredentials(provCfg.AWS)
+		if err != nil {
+			logger.Error("failed to configure AWS credentials for Bedrock", "error", err)
+			os.Exit(1)
+		}
+		transports["bedrock"] = bedrock.NewSigningTransport(awsCreds, provCfg.AWS.Region)
+		logger.Info("bedrock signing transport configured", "region", provCfg.AWS.Region)
+	}
+
+	proxyServer := proxy.New(cfg, parsers, pl.Submit, logger, transports)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.ProxyPort)
 	srv := &http.Server{
@@ -123,4 +141,32 @@ func main() {
 	}
 
 	logger.Info("stopped")
+}
+
+// buildAWSCredentials creates an AWS credentials provider from the Bedrock config.
+// If explicit keys are provided, uses static credentials. Otherwise falls back to
+// the default AWS credential chain (env vars, IAM roles, SSO, shared config, etc.).
+func buildAWSCredentials(awsCfg *config.AWSConfig) (aws.CredentialsProvider, error) {
+	if awsCfg.AccessKeyID != "" && awsCfg.SecretAccessKey != "" {
+		return credentials.NewStaticCredentialsProvider(
+			awsCfg.AccessKeyID,
+			awsCfg.SecretAccessKey,
+			"",
+		), nil
+	}
+
+	// Use the default credential chain.
+	opts := []func(*awsconfig.LoadOptions) error{}
+	if awsCfg.Region != "" {
+		opts = append(opts, awsconfig.WithRegion(awsCfg.Region))
+	}
+	if awsCfg.Profile != "" {
+		opts = append(opts, awsconfig.WithSharedConfigProfile(awsCfg.Profile))
+	}
+
+	sdkCfg, err := awsconfig.LoadDefaultConfig(context.Background(), opts...)
+	if err != nil {
+		return nil, fmt.Errorf("loading default AWS config: %w", err)
+	}
+	return sdkCfg.Credentials, nil
 }

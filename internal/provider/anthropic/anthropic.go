@@ -44,9 +44,22 @@ func (p *Parser) Parse(method, path string, statusCode int, reqBody, respBody []
 	if !isMessages(method, path) {
 		return nil
 	}
+	return ParseResponseBody("anthropic", method, path, statusCode, reqBody, respBody)
+}
 
+func (p *Parser) ParseStream(method, path string, statusCode int, reqBody, respBody []byte) *provider.CallRecord {
+	if !isMessages(method, path) {
+		return nil
+	}
+	return ParseStreamBody("anthropic", method, path, statusCode, reqBody, respBody)
+}
+
+// ParseResponseBody parses an Anthropic Messages API response body.
+// Exported so that other providers with the same response format (e.g. Bedrock)
+// can reuse this logic.
+func ParseResponseBody(providerName, method, path string, statusCode int, reqBody, respBody []byte) *provider.CallRecord {
 	rec := &provider.CallRecord{
-		Provider:     "anthropic",
+		Provider:     providerName,
 		Method:       method,
 		Path:         path,
 		Operation:    "chat",
@@ -79,10 +92,6 @@ func (p *Parser) Parse(method, path string, statusCode int, reqBody, respBody []
 	}
 
 	return rec
-}
-
-func (p *Parser) ParseStream(method, path string, statusCode int, reqBody, respBody []byte) *provider.CallRecord {
-	return parseStreaming(method, path, statusCode, reqBody, respBody)
 }
 
 func isMessages(method, path string) bool {

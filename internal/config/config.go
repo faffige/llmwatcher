@@ -24,6 +24,20 @@ type ServerConfig struct {
 type ProviderConfig struct {
 	Upstream string `koanf:"upstream"`
 	Enabled  bool   `koanf:"enabled"`
+
+	// AWS is optional config for providers that use AWS Sig V4 signing (e.g. Bedrock).
+	// If Region is empty, the default AWS credential chain is used for region too.
+	AWS *AWSConfig `koanf:"aws"`
+}
+
+// AWSConfig holds AWS-specific settings for Bedrock.
+// If AccessKeyID and SecretAccessKey are empty, the default credential chain
+// is used (env vars, IAM roles, SSO, shared config, etc.).
+type AWSConfig struct {
+	Region          string `koanf:"region"`
+	Profile         string `koanf:"profile"`
+	AccessKeyID     string `koanf:"access_key_id"`
+	SecretAccessKey string `koanf:"secret_access_key"`
 }
 
 func Defaults() *Config {
@@ -41,6 +55,13 @@ func Defaults() *Config {
 			"anthropic": {
 				Upstream: "https://api.anthropic.com",
 				Enabled:  true,
+			},
+			"bedrock": {
+				Upstream: "https://bedrock-runtime.us-east-1.amazonaws.com",
+				Enabled:  false,
+				AWS: &AWSConfig{
+					Region: "us-east-1",
+				},
 			},
 			"google": {
 				Upstream: "https://generativelanguage.googleapis.com",

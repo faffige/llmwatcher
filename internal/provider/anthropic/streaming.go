@@ -40,13 +40,12 @@ type streamErrorEvent struct {
 	Error *apiError `json:"error"`
 }
 
-func parseStreaming(method, path string, statusCode int, reqBody, respBody []byte) *provider.CallRecord {
-	if !isMessages(method, path) {
-		return nil
-	}
-
+// ParseStreamBody parses an Anthropic-format SSE streaming response body.
+// Exported so that other providers with the same streaming format (e.g. Bedrock)
+// can reuse this logic.
+func ParseStreamBody(providerName, method, path string, statusCode int, reqBody, respBody []byte) *provider.CallRecord {
 	rec := &provider.CallRecord{
-		Provider:     "anthropic",
+		Provider:     providerName,
 		Method:       method,
 		Path:         path,
 		Operation:    "chat",
