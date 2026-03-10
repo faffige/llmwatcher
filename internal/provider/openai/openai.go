@@ -7,7 +7,7 @@ import (
 	"github.com/faffige/llmwatcher/internal/provider"
 )
 
-// Parser handles OpenAI chat completion responses (non-streaming).
+// Parser handles OpenAI chat completion responses (streaming and non-streaming).
 type Parser struct{}
 
 func New() *Parser { return &Parser{} }
@@ -65,6 +65,10 @@ func (p *Parser) Parse(method, path string, statusCode int, reqBody, respBody []
 	}
 
 	return rec
+}
+
+func (p *Parser) ParseStream(method, path string, statusCode int, reqBody, respBody []byte) *provider.CallRecord {
+	return ParseStreaming(method, path, statusCode, reqBody, respBody)
 }
 
 func isChatCompletions(method, path string) bool {

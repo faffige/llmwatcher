@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -38,8 +39,16 @@ func (rec *recorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil {
 		reqBody, _ = io.ReadAll(r.Body)
 		r.Body.Close()
-		r.Body = io.NopCloser(bytes.NewReader(reqBody))
 	}
+
+	// Detect streaming and inject stream_options.include_usage if needed.
+	isStream := isStreamingRequest(reqBody)
+	if isStream {
+		reqBody = injectIncludeUsage(reqBody)
+	}
+
+	r.Body = io.NopCloser(bytes.NewReader(reqBody))
+	r.ContentLength = int64(len(reqBody))
 
 	// Wrap the response writer to capture status and body.
 	rw := &responseRecorder{
@@ -53,11 +62,16 @@ func (rec *recorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	duration := time.Since(start)
 
 	// Parse asynchronously to avoid adding latency to the response.
-	go rec.parse(r.Method, r.URL.Path, rw.statusCode, reqBody, rw.body.Bytes(), start, duration)
+	go rec.parse(r.Method, r.URL.Path, rw.statusCode, isStream, reqBody, rw.body.Bytes(), start, duration)
 }
 
-func (rec *recorder) parse(method, path string, statusCode int, reqBody, respBody []byte, start time.Time, duration time.Duration) {
-	record := rec.parser.Parse(method, path, statusCode, reqBody, respBody)
+func (rec *recorder) parse(method, path string, statusCode int, isStream bool, reqBody, respBody []byte, start time.Time, duration time.Duration) {
+	var record *provider.CallRecord
+	if isStream {
+		record = rec.parser.ParseStream(method, path, statusCode, reqBody, respBody)
+	} else {
+		record = rec.parser.Parse(method, path, statusCode, reqBody, respBody)
+	}
 	if record == nil {
 		return
 	}
@@ -71,6 +85,7 @@ func (rec *recorder) parse(method, path string, statusCode int, reqBody, respBod
 		"method", record.Method,
 		"path", record.Path,
 		"status", record.StatusCode,
+		"stream", record.IsStream,
 		"input_tokens", record.InputTokens,
 		"output_tokens", record.OutputTokens,
 		"total_tokens", record.TotalTokens,
@@ -80,6 +95,55 @@ func (rec *recorder) parse(method, path string, statusCode int, reqBody, respBod
 	if rec.sink != nil {
 		rec.sink(record)
 	}
+}
+
+// isStreamingRequest checks if the JSON request body has "stream": true.
+func isStreamingRequest(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	var req struct {
+		Stream bool `json:"stream"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return false
+	}
+	return req.Stream
+}
+
+// injectIncludeUsage ensures stream_options.include_usage is true in the
+// request body so OpenAI returns token counts in the final SSE chunk.
+func injectIncludeUsage(body []byte) []byte {
+	var req map[string]json.RawMessage
+	if err := json.Unmarshal(body, &req); err != nil {
+		return body
+	}
+
+	// Parse existing stream_options if present.
+	opts := map[string]any{}
+	if raw, ok := req["stream_options"]; ok {
+		json.Unmarshal(raw, &opts)
+	}
+
+	// Only inject if not already set.
+	if v, ok := opts["include_usage"]; ok {
+		if b, isBool := v.(bool); isBool && b {
+			return body
+		}
+	}
+
+	opts["include_usage"] = true
+	optsJSON, err := json.Marshal(opts)
+	if err != nil {
+		return body
+	}
+	req["stream_options"] = optsJSON
+
+	out, err := json.Marshal(req)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // responseRecorder wraps http.ResponseWriter to capture the status code and body.

@@ -42,4 +42,8 @@ type Parser interface {
 	// Parse inspects the request and response bodies and populates a CallRecord.
 	// It returns nil if the request is not one it can parse (e.g. unknown endpoint).
 	Parse(method, path string, statusCode int, reqBody, respBody []byte) *CallRecord
+
+	// ParseStream parses a buffered SSE streaming response.
+	// It returns nil if the request is not one it can parse.
+	ParseStream(method, path string, statusCode int, reqBody, respBody []byte) *CallRecord
 }
