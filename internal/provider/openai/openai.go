@@ -71,6 +71,44 @@ func (p *Parser) ParseStream(method, path string, statusCode int, reqBody, respB
 	return ParseStreaming(method, path, statusCode, reqBody, respBody)
 }
 
+// ModifyStreamingRequest injects stream_options.include_usage into streaming
+// requests so OpenAI returns token counts in the final SSE chunk.
+func (p *Parser) ModifyStreamingRequest(body []byte) []byte {
+	return injectIncludeUsage(body)
+}
+
+// injectIncludeUsage ensures stream_options.include_usage is true.
+func injectIncludeUsage(body []byte) []byte {
+	var req map[string]json.RawMessage
+	if err := json.Unmarshal(body, &req); err != nil {
+		return body
+	}
+
+	opts := map[string]any{}
+	if raw, ok := req["stream_options"]; ok {
+		json.Unmarshal(raw, &opts)
+	}
+
+	if v, ok := opts["include_usage"]; ok {
+		if b, isBool := v.(bool); isBool && b {
+			return body
+		}
+	}
+
+	opts["include_usage"] = true
+	optsJSON, err := json.Marshal(opts)
+	if err != nil {
+		return body
+	}
+	req["stream_options"] = optsJSON
+
+	out, err := json.Marshal(req)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
 func isChatCompletions(method, path string) bool {
 	if method != "POST" {
 		return false

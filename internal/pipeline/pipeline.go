@@ -8,28 +8,32 @@ import (
 
 	"github.com/faffige/llmwatcher/internal/provider"
 	"github.com/faffige/llmwatcher/internal/storage"
+	"github.com/faffige/llmwatcher/internal/telemetry"
 	"github.com/oklog/ulid/v2"
 )
 
 // Pipeline receives CallRecords on a buffered channel and writes them
 // to the store via a single background worker.
 type Pipeline struct {
-	ch     chan *provider.CallRecord
-	store  storage.Store
-	logger *slog.Logger
-	wg     sync.WaitGroup
+	ch      chan *provider.CallRecord
+	store   storage.Store
+	metrics *telemetry.Metrics
+	logger  *slog.Logger
+	wg      sync.WaitGroup
 }
 
 // New creates a pipeline with the given buffer size and starts the worker.
-func New(store storage.Store, bufSize int, logger *slog.Logger) *Pipeline {
+// metrics may be nil if telemetry is not configured.
+func New(store storage.Store, metrics *telemetry.Metrics, bufSize int, logger *slog.Logger) *Pipeline {
 	if bufSize <= 0 {
 		bufSize = 256
 	}
 
 	p := &Pipeline{
-		ch:     make(chan *provider.CallRecord, bufSize),
-		store:  store,
-		logger: logger,
+		ch:      make(chan *provider.CallRecord, bufSize),
+		store:   store,
+		metrics: metrics,
+		logger:  logger,
 	}
 
 	p.wg.Add(1)
@@ -69,6 +73,10 @@ func (p *Pipeline) worker() {
 				"id", rec.ID,
 				"error", err,
 			)
+		}
+
+		if p.metrics != nil {
+			p.metrics.Record(context.Background(), rec)
 		}
 	}
 }

@@ -40,7 +40,7 @@ func Defaults() *Config {
 			},
 			"anthropic": {
 				Upstream: "https://api.anthropic.com",
-				Enabled:  false,
+				Enabled:  true,
 			},
 			"google": {
 				Upstream: "https://generativelanguage.googleapis.com",

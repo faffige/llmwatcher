@@ -47,3 +47,11 @@ type Parser interface {
 	// It returns nil if the request is not one it can parse.
 	ParseStream(method, path string, statusCode int, reqBody, respBody []byte) *CallRecord
 }
+
+// RequestModifier is an optional interface that parsers can implement to
+// modify outgoing request bodies (e.g. injecting stream_options for OpenAI).
+type RequestModifier interface {
+	// ModifyStreamingRequest adjusts a streaming request body before it is
+	// sent upstream. It returns the (possibly modified) body.
+	ModifyStreamingRequest(body []byte) []byte
+}

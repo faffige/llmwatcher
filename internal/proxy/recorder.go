@@ -41,10 +41,12 @@ func (rec *recorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r.Body.Close()
 	}
 
-	// Detect streaming and inject stream_options.include_usage if needed.
+	// Detect streaming and allow the provider to modify the request if needed.
 	isStream := isStreamingRequest(reqBody)
 	if isStream {
-		reqBody = injectIncludeUsage(reqBody)
+		if mod, ok := rec.parser.(provider.RequestModifier); ok {
+			reqBody = mod.ModifyStreamingRequest(reqBody)
+		}
 	}
 
 	r.Body = io.NopCloser(bytes.NewReader(reqBody))
@@ -109,41 +111,6 @@ func isStreamingRequest(body []byte) bool {
 		return false
 	}
 	return req.Stream
-}
-
-// injectIncludeUsage ensures stream_options.include_usage is true in the
-// request body so OpenAI returns token counts in the final SSE chunk.
-func injectIncludeUsage(body []byte) []byte {
-	var req map[string]json.RawMessage
-	if err := json.Unmarshal(body, &req); err != nil {
-		return body
-	}
-
-	// Parse existing stream_options if present.
-	opts := map[string]any{}
-	if raw, ok := req["stream_options"]; ok {
-		json.Unmarshal(raw, &opts)
-	}
-
-	// Only inject if not already set.
-	if v, ok := opts["include_usage"]; ok {
-		if b, isBool := v.(bool); isBool && b {
-			return body
-		}
-	}
-
-	opts["include_usage"] = true
-	optsJSON, err := json.Marshal(opts)
-	if err != nil {
-		return body
-	}
-	req["stream_options"] = optsJSON
-
-	out, err := json.Marshal(req)
-	if err != nil {
-		return body
-	}
-	return out
 }
 
 // responseRecorder wraps http.ResponseWriter to capture the status code and body.

@@ -149,9 +149,10 @@ func TestRecorder_NilParser_PassesThrough(t *testing.T) {
 	}
 }
 
-func TestInjectIncludeUsage_NoExistingOptions(t *testing.T) {
+func TestRequestModifier_InjectsIncludeUsage(t *testing.T) {
+	parser := openai.New()
 	body := []byte(`{"model":"gpt-4o","stream":true}`)
-	out := injectIncludeUsage(body)
+	out := parser.ModifyStreamingRequest(body)
 
 	var req map[string]json.RawMessage
 	json.Unmarshal(out, &req)
@@ -163,9 +164,10 @@ func TestInjectIncludeUsage_NoExistingOptions(t *testing.T) {
 	}
 }
 
-func TestInjectIncludeUsage_AlreadySet(t *testing.T) {
+func TestRequestModifier_AlreadySet(t *testing.T) {
+	parser := openai.New()
 	body := []byte(`{"model":"gpt-4o","stream":true,"stream_options":{"include_usage":true}}`)
-	out := injectIncludeUsage(body)
+	out := parser.ModifyStreamingRequest(body)
 
 	// Should be unchanged.
 	if !bytes.Equal(body, out) {

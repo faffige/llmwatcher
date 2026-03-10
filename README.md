@@ -100,9 +100,26 @@ internal/
   proxy/                Reverse proxy + recorder middleware
   provider/             Parser interface + CallRecord data model
   provider/openai/      OpenAI response parser
-  pipeline/             Async buffered channel → storage writer
+  pipeline/             Async buffered channel → storage writer + metrics
   storage/              Store interface
   storage/sqlite/       SQLite backend (modernc.org/sqlite)
+  telemetry/            OTel SDK setup, metric instruments, /metrics server
+```
+
+## Metrics
+
+llmWatcher exposes a Prometheus-compatible `/metrics` endpoint on the metrics port (default `:9090`), powered by OpenTelemetry.
+
+Available metrics:
+
+| Metric | Type | Labels |
+|--------|------|--------|
+| `llmwatcher_requests_total` | Counter | `provider`, `model`, `status`, `stream` |
+| `llmwatcher_tokens_total` | Counter | `provider`, `model`, `status`, `stream`, `direction` |
+| `llmwatcher_request_duration_seconds` | Histogram | `provider`, `model`, `status`, `stream` |
+
+```bash
+curl http://127.0.0.1:9090/metrics | grep llmwatcher
 ```
 
 ## Licence

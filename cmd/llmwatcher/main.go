@@ -14,9 +14,11 @@ import (
 	"github.com/faffige/llmwatcher/internal/config"
 	"github.com/faffige/llmwatcher/internal/pipeline"
 	"github.com/faffige/llmwatcher/internal/provider"
+	"github.com/faffige/llmwatcher/internal/provider/anthropic"
 	"github.com/faffige/llmwatcher/internal/provider/openai"
 	"github.com/faffige/llmwatcher/internal/proxy"
 	"github.com/faffige/llmwatcher/internal/storage/sqlite"
+	"github.com/faffige/llmwatcher/internal/telemetry"
 )
 
 var version = "dev"
@@ -38,6 +40,34 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Telemetry (OTel meter provider + Prometheus exporter).
+	mp, err := telemetry.Setup()
+	if err != nil {
+		logger.Error("failed to set up telemetry", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := mp.Shutdown(context.Background()); err != nil {
+			logger.Error("telemetry shutdown error", "error", err)
+		}
+	}()
+
+	metrics, err := telemetry.NewMetrics()
+	if err != nil {
+		logger.Error("failed to create metrics", "error", err)
+		os.Exit(1)
+	}
+
+	// Metrics server (Prometheus /metrics endpoint).
+	metricsAddr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.MetricsPort)
+	metricsSrv := telemetry.NewMetricsServer(metricsAddr)
+	go func() {
+		logger.Info("metrics listening", "addr", metricsAddr)
+		if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("metrics server error", "error", err)
+		}
+	}()
+
 	// Storage.
 	store, err := sqlite.New(*dbPath)
 	if err != nil {
@@ -48,11 +78,12 @@ func main() {
 	logger.Info("database opened", "path", *dbPath)
 
 	// Pipeline.
-	pl := pipeline.New(store, 256, logger)
+	pl := pipeline.New(store, metrics, 256, logger)
 	defer pl.Close()
 
 	parsers := map[string]provider.Parser{
-		"openai": openai.New(),
+		"openai":    openai.New(),
+		"anthropic": anthropic.New(),
 	}
 
 	proxyServer := proxy.New(cfg, parsers, pl.Submit, logger)
@@ -83,6 +114,10 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
+		logger.Error("metrics shutdown error", "error", err)
+	}
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("shutdown error", "error", err)
 	}

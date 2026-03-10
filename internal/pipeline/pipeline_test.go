@@ -37,7 +37,7 @@ func TestPipeline_SubmitAndClose(t *testing.T) {
 	store := &mockStore{}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	pl := pipeline.New(store, 16, logger)
+	pl := pipeline.New(store, nil, 16, logger)
 
 	pl.Submit(&provider.CallRecord{
 		Provider:   "openai",
@@ -72,7 +72,7 @@ func TestPipeline_AssignsUniqueIDs(t *testing.T) {
 	store := &mockStore{}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	pl := pipeline.New(store, 16, logger)
+	pl := pipeline.New(store, nil, 16, logger)
 
 	for i := 0; i < 10; i++ {
 		pl.Submit(&provider.CallRecord{
